@@ -8,7 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  CONTAINER_REPOSITORY: ghcr.io/${{ github.repository }}
 
 jobs:
   build:
@@ -24,9 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -37,8 +33,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare Release
-        run: make prepare-release
-
-      - name: Run Release
-        run: make release-${{ matrix.action }} -j $(nproc)
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./${{ matrix.action }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.action }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.action }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.action }}
+          cache-to: type=gha,scope=${{ matrix.action }},mode=max
