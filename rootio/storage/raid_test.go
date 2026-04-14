@@ -83,6 +83,7 @@ func TestBuildMdadmCreateArgs_normalizesDevicePath(t *testing.T) {
 	cases := []struct{ in, wantDev string }{
 		{"md0", "/dev/md0"},
 		{"/dev/md0", "/dev/md0"},
+		{"/dev/md/root", "/dev/md/root"},
 	}
 	for _, tc := range cases {
 		r := RAID{Name: tc.in, Level: "0", Devices: []string{"/dev/sdb1", "/dev/sdc1"}}
@@ -108,6 +109,11 @@ func TestValidateRAID(t *testing.T) {
 		{"valid raid0", RAID{Name: "md0", Level: "0", Devices: []string{"/dev/sdb1", "/dev/sdc1"}}, ""},
 		{"valid raid1", RAID{Name: "md0", Level: "1", Devices: []string{"/dev/sdb1", "/dev/sdc1"}}, ""},
 		{"valid raid10", RAID{Name: "md0", Level: "10", Devices: []string{"/dev/sdb1", "/dev/sdc1", "/dev/sdd1", "/dev/sde1"}}, ""},
+		{"valid named /dev/md/root", RAID{Name: "/dev/md/root", Level: "1", Devices: []string{"/dev/sda2", "/dev/sdb2"}}, ""},
+		{"valid named /dev/md/data_01", RAID{Name: "/dev/md/data_01", Level: "1", Devices: []string{"/dev/sda2", "/dev/sdb2"}}, ""},
+		{"invalid bare /dev/md", RAID{Name: "/dev/md", Level: "1", Devices: []string{"/dev/sda2", "/dev/sdb2"}}, "name"},
+		{"invalid trailing slash", RAID{Name: "/dev/md/", Level: "1", Devices: []string{"/dev/sda2", "/dev/sdb2"}}, "name"},
+		{"invalid random path", RAID{Name: "/dev/root", Level: "1", Devices: []string{"/dev/sda2", "/dev/sdb2"}}, "name"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -19,7 +19,10 @@ type RAID struct {
 	Spare   []string `json:"spare,omitempty"`
 }
 
-var raidNameRegexp = regexp.MustCompile(`^(/dev/)?md[A-Za-z0-9_.-]+$`)
+// Accept both the numeric mdadm form (md0, /dev/md0) and the udev-style
+// named form (/dev/md/<name>). The named form is what mdadm produces when
+// --name is used and is common in Equinix/Packet CPR metadata.
+var raidNameRegexp = regexp.MustCompile(`^(/dev/)?md([0-9]+|/[A-Za-z][A-Za-z0-9_.-]*)$`)
 
 // validLevels maps supported RAID levels to the minimum number of data devices.
 var validLevels = map[string]int{
@@ -85,6 +88,14 @@ func CreateRAID(r RAID) error {
 	}
 	dev := normalizeRAIDDevice(r.Name)
 	log.Infof("Creating RAID%s array %s across %v", r.Level, dev, r.Devices)
+
+	// Named form (/dev/md/<name>) needs /dev/md/ to exist so mdadm can
+	// mknod the symlink. udev normally creates this; HookOS has no udev.
+	if strings.HasPrefix(dev, "/dev/md/") {
+		if err := os.MkdirAll("/dev/md", 0o755); err != nil {
+			return fmt.Errorf("raid: could not create /dev/md: %w", err)
+		}
+	}
 
 	args := BuildMdadmCreateArgs(r)
 	return runMdadm(args...)
