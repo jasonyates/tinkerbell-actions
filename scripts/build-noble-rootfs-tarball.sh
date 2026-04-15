@@ -79,8 +79,10 @@ else
 fi
 
 # Canonical's tarball ships linux-image-virtual; upgrade to linux-image-generic
-# so the initramfs has all the hardware drivers a real bare-metal host needs.
-apt-get install -y --no-install-recommends linux-image-generic
+# and bundle linux-modules-extra-generic so the initramfs has drivers for the
+# full range of bare-metal hardware (additional NICs, RAID controllers, etc.).
+apt-get install -y --no-install-recommends \
+  linux-image-generic linux-modules-extra-generic
 
 # Sanity gate: fail the build if no kernel ended up in /boot.
 if ! ls /boot/vmlinuz-* >/dev/null 2>&1; then
