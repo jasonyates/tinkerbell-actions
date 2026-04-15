@@ -47,7 +47,7 @@ spec:
           # it will accept without replicating its reader. Pre-flight the hash
           # out-of-band (e.g. the .tar.gz.sha256 file alongside the tarball).
           - name: "extract-rootfs"
-            image: quay.io/tinkerbell/actions/archive2disk:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/archive2disk:latest
             timeout: 900
             environment:
               ARCHIVE_URL: "http://31.24.228.5:7173/noble-rootfs.tar.gz"
@@ -59,7 +59,7 @@ spec:
 
           # 4. Chroot: write mdadm.conf, fstab, regenerate initramfs
           - name: "chroot-finalize"
-            image: quay.io/tinkerbell/actions/cexec:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
             timeout: 600
             environment:
               BLOCK_DEVICE: "/dev/md0"
@@ -70,7 +70,7 @@ spec:
 
           # 5. Install GRUB MBR on both RAID members so either disk boots alone
           - name: "grub-install-sda"
-            image: quay.io/tinkerbell/actions/grub2disk:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/grub2disk:latest
             timeout: 300
             environment:
               GRUB_DISK: "/dev/md0"
@@ -78,7 +78,7 @@ spec:
               FS_TYPE: "ext4"
 
           - name: "grub-install-sdb"
-            image: quay.io/tinkerbell/actions/grub2disk:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/grub2disk:latest
             timeout: 300
             environment:
               GRUB_DISK: "/dev/md0"
@@ -89,7 +89,7 @@ spec:
           # inside the chroot picks up the RAID array correctly if
           # /etc/mdadm/mdadm.conf is already present (step 4 did that).
           - name: "update-grub"
-            image: quay.io/tinkerbell/actions/cexec:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
             timeout: 300
             environment:
               BLOCK_DEVICE: "/dev/md0"

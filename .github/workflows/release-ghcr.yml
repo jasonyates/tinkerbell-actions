@@ -19,7 +19,7 @@ jobs:
     strategy:
       matrix:
         # Add more actions to this list as you maintain forks of them.
-        action: [rootio]
+        action: [rootio, archive2disk, cexec, grub2disk]
     steps:
       - uses: actions/checkout@v4
 
