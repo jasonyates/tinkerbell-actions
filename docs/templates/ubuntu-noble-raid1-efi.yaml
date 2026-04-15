@@ -1,0 +1,63 @@
+apiVersion: tinkerbell.org/v1alpha1
+kind: Template
+metadata:
+  name: ubuntu-noble-raid1-efi
+  namespace: tink-system
+  labels:
+    os: ubuntu
+    pretty-name: ubuntu-noble-raid1-efi
+spec:
+  data: |
+    version: "0.1"
+    name: ubuntu-noble-raid1-efi
+    global_timeout: 432000
+    tasks:
+      - name: "os-installation"
+        worker: "{{ .device_1 }}"
+        volumes:
+          - /dev:/dev
+          - /dev/console:/dev/console
+          - /lib/firmware:/lib/firmware:ro
+          - /sys:/sys
+        actions:
+          # 1. Partition (ESP + ROOT on each disk) and assemble /dev/md0 over the ROOT partitions.
+          - name: "rootio-partition"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
+            timeout: 180
+            command: ["partition"]
+            environment:
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 2. mkfs: ext4 on /dev/md0, FAT32 on each ESP (sda1 and sdb1 separately — firmware can't read mdadm).
+          - name: "rootio-format"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
+            timeout: 180
+            command: ["format"]
+            environment:
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 3. Extract the EFI-flavoured Noble rootfs (grub-efi-amd64 + efibootmgr baked in).
+          - name: "extract-rootfs"
+            image: ghcr.io/jasonyates/tinkerbell-actions/archive2disk:latest
+            timeout: 900
+            environment:
+              ARCHIVE_URL: "http://31.24.228.5:7173/noble-rootfs-efi.tar.gz"
+              ARCHIVE_TYPE: "targz"
+              DEST_DISK: "/dev/md0"
+              FS_TYPE: "ext4"
+              DEST_PATH: "/"
+              INSECURE_NO_TARFILE_CHECKSUM_VERIFICATION: "true"
+
+          # 4. Chroot: mdadm config, fstab, install grub to BOTH ESPs, register NVRAM entries,
+          # regenerate initramfs.
+          - name: "chroot-finalize"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 900
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "mkdir -p /etc/mdadm /boot/efi; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\nLABEL=EFI_SDA /boot/efi vfat defaults,nofail 0 2\n' > /etc/fstab; mount /dev/sda1 /boot/efi; grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck --no-nvram; update-initramfs -u -k all; update-grub; umount /boot/efi; mount /dev/sdb1 /boot/efi; grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu-backup --recheck --no-nvram; umount /boot/efi; efibootmgr --create --disk /dev/sda --part 1 --label 'ubuntu' --loader '\\EFI\\ubuntu\\shimx64.efi' || efibootmgr --create --disk /dev/sda --part 1 --label 'ubuntu' --loader '\\EFI\\ubuntu\\grubx64.efi'; efibootmgr --create --disk /dev/sdb --part 1 --label 'ubuntu-backup' --loader '\\EFI\\ubuntu\\grubx64.efi' || true"

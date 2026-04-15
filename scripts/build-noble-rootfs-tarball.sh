@@ -10,7 +10,9 @@ set -euxo pipefail
 CLOUD_IMG_URL="${CLOUD_IMG_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
 WORK="${WORK:-/tmp/noble-rootfs-build}"
 OUT_DIR="${OUT_DIR:-/srv/tinkerbell-artifacts}"
-OUT_BASE="${OUT_BASE:-noble-rootfs}"
+# MODE=bios installs grub-pc, MODE=efi installs grub-efi-amd64 + efibootmgr.
+MODE="${MODE:-bios}"
+OUT_BASE="${OUT_BASE:-noble-rootfs-${MODE}}"
 
 mkdir -p "$WORK" "$OUT_DIR"
 cd "$WORK"
@@ -44,19 +46,23 @@ sudo rm -f rootfs/etc/resolv.conf
 sudo cp -L /etc/resolv.conf rootfs/etc/resolv.conf
 
 # 4. Install mdadm + grub-pc (BIOS bootloader) inside the chroot
-sudo chroot rootfs /bin/bash -eux <<'CHROOT'
+sudo chroot rootfs /bin/bash -eux <<CHROOT
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-# grub-pc postinst asks where to install — defer, we do it per-disk at provision time
+# Defer bootloader install target — we do it per-disk at provision time
 echo 'grub-pc grub-pc/install_devices_empty boolean true' | debconf-set-selections
 echo 'grub-pc grub-pc/install_devices multiselect' | debconf-set-selections
-apt-get install -y --no-install-recommends \
-  mdadm \
-  grub-pc \
-  grub-common \
-  initramfs-tools
-# Pre-remove grub-efi-amd64 if present (we're doing BIOS boot); harmless if absent.
-apt-get purge -y grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed 2>/dev/null || true
+
+if [ "${MODE}" = "efi" ]; then
+  apt-get install -y --no-install-recommends \\
+    mdadm grub-common grub-efi-amd64 grub-efi-amd64-bin efibootmgr dosfstools initramfs-tools
+  apt-get purge -y grub-pc grub-pc-bin 2>/dev/null || true
+else
+  apt-get install -y --no-install-recommends \\
+    mdadm grub-common grub-pc initramfs-tools
+  apt-get purge -y grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed 2>/dev/null || true
+fi
+
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 CHROOT
