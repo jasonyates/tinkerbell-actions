@@ -20,7 +20,7 @@ spec:
           - /lib/firmware:/lib/firmware:ro
           - /sys:/sys
         actions:
-          # 1. Wipe + partition + assemble /dev/md0 RAID1
+          # 1. Partition (BIOS boot + ROOT on each disk), assemble /dev/md0.
           - name: "rootio-partition"
             image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
             timeout: 180
@@ -29,7 +29,7 @@ spec:
               METADATA_SERVICE_PORT: "7080"
               MIRROR_HOST: "31.24.228.5"
 
-          # 2. mkfs.ext4 on /dev/md0 (label ROOT)
+          # 2. mkfs.ext4 on /dev/md0 (label ROOT).
           - name: "rootio-format"
             image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
             timeout: 120
@@ -38,14 +38,7 @@ spec:
               METADATA_SERVICE_PORT: "7080"
               MIRROR_HOST: "31.24.228.5"
 
-          # 3. Extract Noble rootfs tarball onto /dev/md0
-          #
-          # Checksum verification is skipped because archive2disk hashes the
-          # bytes consumed by its tar reader, which stops at the end-of-archive
-          # marker — always fewer bytes than `sha256sum file.tar.gz` or
-          # `gunzip -c | sha256sum`, so there is no way to pre-compute a value
-          # it will accept without replicating its reader. Pre-flight the hash
-          # out-of-band (e.g. the .tar.gz.sha256 file alongside the tarball).
+          # 3. Extract Noble rootfs tarball onto /dev/md0.
           - name: "extract-rootfs"
             image: ghcr.io/jasonyates/tinkerbell-actions/archive2disk:latest
             timeout: 900
@@ -57,19 +50,79 @@ spec:
               DEST_PATH: "/"
               INSECURE_NO_TARFILE_CHECKSUM_VERIFICATION: "true"
 
-          # 4. Chroot once, do everything: mdadm config, fstab, initramfs,
-          # install GRUB to both RAID members, generate grub.cfg.
-          #
-          # We don't use grub2disk because its chroot layout bind-mounts its own
-          # (alpine) /bin, /usr, /lib over the target (Ubuntu, usrmerged), which
-          # breaks /bin/sh resolution. cexec mounts only the target rootfs and
-          # binds /proc /sys /dev, which is what we actually want.
-          - name: "chroot-finalize"
+          # 4. Set root password + enable root SSH.
+          - name: "set-root-password"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
-            timeout: 900
+            timeout: 120
             environment:
               BLOCK_DEVICE: "/dev/md0"
               FS_TYPE: "ext4"
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "sed -i 's/^#*PermitRootLogin.*$/PermitRootLogin yes/g' /etc/ssh/sshd_config; echo root:password | chpasswd; passwd -u root; mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all; grub-install --target=i386-pc /dev/sda; grub-install --target=i386-pc /dev/sdb; update-grub"
+              CMD_LINE: "sed -i 's/^#*PermitRootLogin.*$/PermitRootLogin yes/g' /etc/ssh/sshd_config; echo root:password | chpasswd; passwd -u root"
+
+          # 5. Write mdadm.conf so initramfs can assemble /dev/md0 at boot.
+          - name: "configure-mdadm"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 120
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf"
+
+          # 6. Write /etc/fstab.
+          - name: "configure-fstab"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 60
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab"
+
+          # 7. Regenerate initramfs so it includes mdadm + the mdadm.conf above.
+          - name: "update-initramfs"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "update-initramfs -u -k all"
+
+          # 8. Install GRUB MBR on sda.
+          - name: "grub-install-sda"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "grub-install --target=i386-pc /dev/sda"
+
+          # 9. Install GRUB MBR on sdb (mirror).
+          - name: "grub-install-sdb"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "grub-install --target=i386-pc /dev/sdb"
+
+          # 10. Generate grub.cfg referencing /dev/md0's UUID.
+          - name: "update-grub"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "update-grub"
