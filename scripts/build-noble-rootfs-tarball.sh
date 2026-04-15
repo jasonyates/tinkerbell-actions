@@ -23,8 +23,27 @@ if [ ! -f noble.raw ]; then
   qemu-img convert -f qcow2 -O raw noble.qcow2 noble.raw
 fi
 
+# 1a. Grow the rootfs partition. Cloud image ships a ~2.4 GiB rootfs that can't
+# fit linux-image-generic + firmware + microcode (~1 GiB). Grow by EXTRA_GIB
+# (default 4) and resize p1 to consume the new space. p1 is last on disk in
+# Noble cloud images (p14=BIOS boot, p15=ESP, p1=rootfs at offset 227328),
+# so a straight growpart works. Idempotent via a marker file.
+EXTRA_GIB="${EXTRA_GIB:-4}"
+if [ ! -f noble.raw.grown ]; then
+  sudo qemu-img resize -f raw noble.raw "+${EXTRA_GIB}G"
+  touch noble.raw.grown
+fi
+
 # 2. Loop mount partitions
 LOOP=$(losetup --show -f -P noble.raw)
+
+# Relocate the GPT backup header to the end of the now-larger disk, then grow
+# p1 to fill. sgdisk ships with the `gdisk` package.
+sudo sgdisk -e "$LOOP" || true
+sudo parted -s "$LOOP" resizepart 1 100%
+sudo partprobe "$LOOP" || true
+sudo e2fsck -fy "${LOOP}p1" || true
+sudo resize2fs "${LOOP}p1"
 cleanup() {
   sudo umount -R rootfs 2>/dev/null || true
   sudo losetup -d "$LOOP" 2>/dev/null || true
