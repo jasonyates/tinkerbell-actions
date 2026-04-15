@@ -57,43 +57,19 @@ spec:
               DEST_PATH: "/"
               INSECURE_NO_TARFILE_CHECKSUM_VERIFICATION: "true"
 
-          # 4. Chroot: write mdadm.conf, fstab, regenerate initramfs
+          # 4. Chroot once, do everything: mdadm config, fstab, initramfs,
+          # install GRUB to both RAID members, generate grub.cfg.
+          #
+          # We don't use grub2disk because its chroot layout bind-mounts its own
+          # (alpine) /bin, /usr, /lib over the target (Ubuntu, usrmerged), which
+          # breaks /bin/sh resolution. cexec mounts only the target rootfs and
+          # binds /proc /sys /dev, which is what we actually want.
           - name: "chroot-finalize"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
-            timeout: 600
+            timeout: 900
             environment:
               BLOCK_DEVICE: "/dev/md0"
               FS_TYPE: "ext4"
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all"
-
-          # 5. Install GRUB MBR on both RAID members so either disk boots alone
-          - name: "grub-install-sda"
-            image: ghcr.io/jasonyates/tinkerbell-actions/grub2disk:latest
-            timeout: 300
-            environment:
-              GRUB_DISK: "/dev/md0"
-              GRUB_INSTALL_PATH: "/dev/sda"
-              FS_TYPE: "ext4"
-
-          - name: "grub-install-sdb"
-            image: ghcr.io/jasonyates/tinkerbell-actions/grub2disk:latest
-            timeout: 300
-            environment:
-              GRUB_DISK: "/dev/md0"
-              GRUB_INSTALL_PATH: "/dev/sdb"
-              FS_TYPE: "ext4"
-
-          # 6. Generate grub.cfg referencing /dev/md0's UUID. grub-mkconfig
-          # inside the chroot picks up the RAID array correctly if
-          # /etc/mdadm/mdadm.conf is already present (step 4 did that).
-          - name: "update-grub"
-            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
-            timeout: 300
-            environment:
-              BLOCK_DEVICE: "/dev/md0"
-              FS_TYPE: "ext4"
-              CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "update-grub"
+              CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all; grub-install --target=i386-pc /dev/sda; grub-install --target=i386-pc /dev/sdb; update-grub"

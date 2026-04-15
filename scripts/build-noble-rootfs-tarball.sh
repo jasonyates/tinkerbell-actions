@@ -53,14 +53,25 @@ apt-get update
 echo 'grub-pc grub-pc/install_devices_empty boolean true' | debconf-set-selections
 echo 'grub-pc grub-pc/install_devices multiselect' | debconf-set-selections
 
+# linux-image-generic is essential — without a kernel, update-initramfs and
+# update-grub silently no-op and the resulting tarball isn't bootable.
+# Do NOT drop --no-install-recommends without replacing it: the cloud image
+# rootfs can ship without a kernel and we must pull one in explicitly.
 if [ "${MODE}" = "efi" ]; then
   apt-get install -y --no-install-recommends \\
-    mdadm grub-common grub-efi-amd64 grub-efi-amd64-bin efibootmgr dosfstools initramfs-tools
+    linux-image-generic mdadm grub-common grub-efi-amd64 grub-efi-amd64-bin \\
+    efibootmgr dosfstools initramfs-tools
   apt-get purge -y grub-pc grub-pc-bin 2>/dev/null || true
 else
   apt-get install -y --no-install-recommends \\
-    mdadm grub-common grub-pc initramfs-tools
+    linux-image-generic mdadm grub-common grub-pc initramfs-tools
   apt-get purge -y grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed 2>/dev/null || true
+fi
+
+# Sanity gate: fail the build if no kernel ended up in /boot.
+if ! ls /boot/vmlinuz-* >/dev/null 2>&1; then
+  echo "FATAL: /boot has no kernel after apt install; refusing to produce a non-bootable tarball" >&2
+  exit 1
 fi
 
 apt-get clean
