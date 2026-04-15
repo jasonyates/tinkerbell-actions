@@ -1,0 +1,93 @@
+apiVersion: tinkerbell.org/v1alpha1
+kind: Template
+metadata:
+  name: ubuntu-noble-raid1-bios
+  namespace: tink-system
+  labels:
+    os: ubuntu
+    pretty-name: ubuntu-noble-raid1-bios
+spec:
+  data: |
+    version: "0.1"
+    name: ubuntu-noble-raid1-bios
+    global_timeout: 432000
+    tasks:
+      - name: "os-installation"
+        worker: "{{ .device_1 }}"
+        volumes:
+          - /dev:/dev
+          - /dev/console:/dev/console
+          - /lib/firmware:/lib/firmware:ro
+          - /sys:/sys
+        actions:
+          # 1. Wipe + partition + assemble /dev/md0 RAID1
+          - name: "rootio-partition"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
+            timeout: 180
+            command: ["partition"]
+            environment:
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 2. mkfs.ext4 on /dev/md0 (label ROOT)
+          - name: "rootio-format"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
+            timeout: 120
+            command: ["format"]
+            environment:
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 3. Extract Noble rootfs tarball onto /dev/md0
+          - name: "extract-rootfs"
+            image: quay.io/tinkerbell/actions/archive2disk:latest
+            timeout: 900
+            environment:
+              ARCHIVE_URL: "http://31.24.228.5:7173/noble-rootfs.tar.gz"
+              ARCHIVE_TYPE: "targz"
+              DEST_DISK: "/dev/md0"
+              FS_TYPE: "ext4"
+              DEST_PATH: "/"
+              # Generate this once when you upload the tarball; see scripts/build-noble-rootfs-tarball.sh
+              TARFILE_CHECKSUM: "sha256:REPLACE_ME_WITH_OUTPUT_OF_build_rootfs_script"
+
+          # 4. Chroot: write mdadm.conf, fstab, regenerate initramfs
+          - name: "chroot-finalize"
+            image: quay.io/tinkerbell/actions/cexec:latest
+            timeout: 600
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux"
+              CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all"
+
+          # 5. Install GRUB MBR on both RAID members so either disk boots alone
+          - name: "grub-install-sda"
+            image: quay.io/tinkerbell/actions/grub2disk:latest
+            timeout: 300
+            environment:
+              GRUB_DISK: "/dev/md0"
+              GRUB_INSTALL_PATH: "/dev/sda"
+              FS_TYPE: "ext4"
+
+          - name: "grub-install-sdb"
+            image: quay.io/tinkerbell/actions/grub2disk:latest
+            timeout: 300
+            environment:
+              GRUB_DISK: "/dev/md0"
+              GRUB_INSTALL_PATH: "/dev/sdb"
+              FS_TYPE: "ext4"
+
+          # 6. Generate grub.cfg referencing /dev/md0's UUID. grub-mkconfig
+          # inside the chroot picks up the RAID array correctly if
+          # /etc/mdadm/mdadm.conf is already present (step 4 did that).
+          - name: "update-grub"
+            image: quay.io/tinkerbell/actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/md0"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux"
+              CMD_LINE: "update-grub"
