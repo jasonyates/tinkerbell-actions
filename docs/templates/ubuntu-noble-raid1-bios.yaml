@@ -65,7 +65,7 @@ spec:
               BLOCK_DEVICE: "/dev/md0"
               FS_TYPE: "ext4"
               CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all"
 
           # 5. Install GRUB MBR on both RAID members so either disk boots alone
@@ -95,5 +95,5 @@ spec:
               BLOCK_DEVICE: "/dev/md0"
               FS_TYPE: "ext4"
               CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "update-grub"
