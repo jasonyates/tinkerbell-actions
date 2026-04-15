@@ -72,4 +72,4 @@ spec:
               FS_TYPE: "ext4"
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "sed -i 's/^#*PermitRootLogin.*$/PermitRootLogin yes/g' /etc/ssh/sshd_config; echo root:oxaIydmVLlFP4ZhTt76SqdfTBTOJ6QfRMeckkh40 | chpasswd; passwd -u root; mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all; grub-install --target=i386-pc /dev/sda; grub-install --target=i386-pc /dev/sdb; update-grub"
+              CMD_LINE: "sed -i 's/^#*PermitRootLogin.*$/PermitRootLogin yes/g' /etc/ssh/sshd_config; echo root:password | chpasswd; passwd -u root; mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf; printf 'LABEL=ROOT / ext4 defaults 0 1\n' > /etc/fstab; update-initramfs -u -k all; grub-install --target=i386-pc /dev/sda; grub-install --target=i386-pc /dev/sdb; update-grub"
