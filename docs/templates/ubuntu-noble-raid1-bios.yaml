@@ -126,3 +126,16 @@ spec:
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "update-grub"
+
+          # 11. Reboot into the installed OS. waitdaemon defers the reboot so
+          # tink-agent can report this action's success before the host drops.
+          - name: "reboot"
+            image: docker.repo.thghosting.cloud/dca/waitdaemon:v0.1.1
+            timeout: 90
+            pid: host
+            command: ["reboot"]
+            environment:
+              IMAGE: docker.repo.thghosting.cloud/dca/alpine:latest
+              WAIT_SECONDS: 10
+            volumes:
+              - /var/run/docker.sock:/var/run/docker.sock
