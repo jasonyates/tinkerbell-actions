@@ -50,7 +50,31 @@ spec:
               DEST_PATH: "/"
               INSECURE_NO_TARFILE_CHECKSUM_VERIFICATION: "true"
 
-          # 4. Set root password + enable root SSH.
+          # 4. Wire cloud-init to this stack's tootles as an EC2 datasource.
+          # Tootles serves /2009-04-04/user-data and meta-data/* by the caller's
+          # IP; cloud-init's DataSourceEc2 consumes exactly that shape.
+          # Per-stack config (tootles URL) lives here, not in the rootfs image.
+          - name: "configure-cloud-init"
+            image: ghcr.io/jasonyates/tinkerbell-actions/writefile:latest
+            timeout: 60
+            environment:
+              DEST_DISK: "/dev/md0"
+              FS_TYPE: "ext4"
+              DEST_PATH: "/etc/cloud/cloud.cfg.d/90-tinkerbell.cfg"
+              UID: "0"
+              GID: "0"
+              MODE: "0644"
+              DIRMODE: "0755"
+              CONTENTS: |
+                datasource_list: [ Ec2, NoCloud, None ]
+                datasource:
+                  Ec2:
+                    metadata_urls: [ "http://31.24.228.5:7080" ]
+                    strict_id: false
+                    metadata_version: 2009-04-04
+
+          # 5. Set root password + enable root SSH (bootstrap credential; rotate
+          # once you're driving users/keys via Hardware CR spec.userData).
           - name: "set-root-password"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
             timeout: 120
