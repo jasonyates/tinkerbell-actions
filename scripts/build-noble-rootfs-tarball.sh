@@ -37,16 +37,24 @@ sudo tar --numeric-owner -xf root.tar.xz -C rootfs
 
 # 3. Bind-mount pseudo-fs and inject working DNS for apt
 cleanup() {
-  for p in dev/pts dev proc sys; do
-    sudo umount "rootfs/$p" 2>/dev/null || true
-  done
+  # Tear down deepest-first so nested mounts (efivarfs under /sys, etc.) go
+  # before their parent; lazy so we don't block on EBUSY.
+  if [ -d rootfs ]; then
+    findmnt -n -R "$PWD/rootfs" -o TARGET 2>/dev/null | tac \
+      | xargs -r -n1 sudo umount -l 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
 sudo mount --bind /dev  rootfs/dev
 sudo mount -t devpts devpts rootfs/dev/pts 2>/dev/null || true
 sudo mount --bind /proc rootfs/proc
-sudo mount --bind /sys  rootfs/sys
+# `rbind` (recursive bind) so that nested mounts under /sys (efivarfs,
+# cgroup, etc.) are propagated as separate mount entries inside the
+# chroot — the chroot needs them, and teardown via findmnt -R below
+# can then umount them in deepest-first order.
+sudo mount --rbind /sys rootfs/sys
+sudo mount --make-rslave rootfs/sys 2>/dev/null || true
 sudo rm -f rootfs/etc/resolv.conf
 sudo cp -L /etc/resolv.conf rootfs/etc/resolv.conf
 
