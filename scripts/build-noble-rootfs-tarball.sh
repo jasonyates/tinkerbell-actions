@@ -17,6 +17,13 @@ OUT_BASE="${OUT_BASE:-noble-rootfs-${MODE}}"
 mkdir -p "$WORK" "$OUT_DIR"
 cd "$WORK"
 
+# If a previous run crashed before unmounting, leftover bind mounts under
+# rootfs/ will make `rm -rf` fail with "Operation not permitted" on sysfs
+# entries. Tear them down before continuing.
+if [ -d rootfs ] && findmnt -n -R "$PWD/rootfs" >/dev/null 2>&1; then
+  findmnt -n -R "$PWD/rootfs" -o TARGET | tac | xargs -r -n1 sudo umount -l
+fi
+
 # 1. Fetch Canonical's prebuilt root tarball (already contains the kernel,
 # cloud-init, and a base server seed — no qemu/losetup gymnastics required).
 if [ ! -f root.tar.xz ]; then
