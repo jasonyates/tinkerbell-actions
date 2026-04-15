@@ -48,8 +48,11 @@ spec:
               DEST_DISK: "/dev/md0"
               FS_TYPE: "ext4"
               DEST_PATH: "/"
-              # Generate this once when you upload the tarball; see scripts/build-noble-rootfs-tarball.sh
-              TARFILE_CHECKSUM: "sha256:REPLACE_ME_WITH_OUTPUT_OF_build_rootfs_script"
+              # IMPORTANT: archive2disk verifies checksum of the *decompressed*
+              # tar stream, not the gzipped file. Use the value printed in the
+              # "sha256 of uncompressed tar" line of build-noble-rootfs-tarball.sh,
+              # not the one matching `sha256sum noble-rootfs.tar.gz`.
+              TARFILE_CHECKSUM: "sha256:REPLACE_ME_WITH_UNCOMPRESSED_TAR_SHA256"
 
           # 4. Chroot: write mdadm.conf, fstab, regenerate initramfs
           - name: "chroot-finalize"

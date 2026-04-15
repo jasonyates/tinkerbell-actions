@@ -69,6 +69,13 @@ sudo touch rootfs/etc/machine-id
 sudo umount rootfs/dev rootfs/proc rootfs/sys
 
 # 6. Produce tarball + checksum
+#
+# archive2disk verifies checksum of the DECOMPRESSED tar stream, not the
+# gzipped file. We emit two checksum files:
+#   * .tar.gz.sha256     — hash of the downloadable .tar.gz (normal sha256sum)
+#   * .tar.sha256        — hash of the uncompressed tar content; this is the
+#                          value to pin in TARFILE_CHECKSUM.
+# See archive2disk/archive/utils.go (io.TeeReader after gzip.NewReader).
 TAR="$OUT_DIR/${OUT_BASE}.tar.gz"
 sudo tar --numeric-owner --one-file-system \
   --exclude='./proc/*' --exclude='./sys/*' --exclude='./dev/*' \
@@ -77,6 +84,9 @@ sudo tar --numeric-owner --one-file-system \
   -C rootfs -czf "$TAR" .
 
 ( cd "$OUT_DIR" && sha256sum "$(basename "$TAR")" > "$(basename "$TAR").sha256" )
+gunzip -c "$TAR" | sha256sum \
+  | sed "s| -$|  $(basename "${TAR%.gz}")|" \
+  > "${TAR%.gz}.sha256"
 
 sudo umount rootfs
 sudo losetup -d "$LOOP"
@@ -84,5 +94,7 @@ trap - EXIT
 
 echo "---"
 echo "Tarball: $TAR"
-echo "Checksum:"
+echo "sha256 of .tar.gz (for sanity/HTTP verification):"
 cat "${TAR}.sha256"
+echo "sha256 of uncompressed tar (USE THIS for archive2disk TARFILE_CHECKSUM):"
+cat "${TAR%.gz}.sha256"
