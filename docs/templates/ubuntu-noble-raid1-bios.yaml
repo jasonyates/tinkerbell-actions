@@ -50,7 +50,7 @@ spec:
             image: ghcr.io/jasonyates/tinkerbell-actions/archive2disk:latest
             timeout: 900
             environment:
-              ARCHIVE_URL: "http://31.24.228.5:7173/noble-rootfs.tar.gz"
+              ARCHIVE_URL: "http://31.24.228.5:7173/noble-rootfs-bios.tar.gz"
               ARCHIVE_TYPE: "targz"
               DEST_DISK: "/dev/md0"
               FS_TYPE: "ext4"
