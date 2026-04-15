@@ -37,7 +37,11 @@ sudo mount "${LOOP}p1" rootfs
 sudo mount --bind /dev  rootfs/dev
 sudo mount --bind /proc rootfs/proc
 sudo mount --bind /sys  rootfs/sys
-sudo cp /etc/resolv.conf rootfs/etc/resolv.conf
+# Cloud image ships /etc/resolv.conf as a dangling symlink to
+# /run/systemd/resolve/stub-resolv.conf. Replace it with a real file
+# (we strip this back out before tarring).
+sudo rm -f rootfs/etc/resolv.conf
+sudo cp -L /etc/resolv.conf rootfs/etc/resolv.conf
 
 # 4. Install mdadm + grub-pc (BIOS bootloader) inside the chroot
 sudo chroot rootfs /bin/bash -eux <<'CHROOT'
