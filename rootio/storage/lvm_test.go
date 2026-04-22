@@ -60,11 +60,11 @@ func TestValidateVolumeGroup(t *testing.T) {
 		vg      VolumeGroup
 		wantErr string
 	}{
-		{"empty name", VolumeGroup{PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, "name"},
-		{"bad vg name chars", VolumeGroup{Name: "bad name", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, "name"},
-		{"no physical volumes", VolumeGroup{Name: "vg0", LogicalVolumes: []LogicalVolume{baseLV}}, "physical"},
-		{"non-absolute PV", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, "absolute"},
-		{"bad lv name", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{{Name: "bad name", Size: 1}}}, "name"},
+		{"empty name", VolumeGroup{PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, "volume group name"},
+		{"bad vg name chars", VolumeGroup{Name: "bad name", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, "volume group name"},
+		{"no physical volumes", VolumeGroup{Name: "vg0", LogicalVolumes: []LogicalVolume{baseLV}}, "physical volumes"},
+		{"non-absolute PV", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, "absolute device path"},
+		{"bad lv name", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{{Name: "bad name", Size: 1}}}, "logical volume name"},
 		{"two fill LVs", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{fillLV, fillLV}}, "last"},
 		{"fill LV not last", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{fillLV, baseLV}}, "last"},
 		{"valid simple", VolumeGroup{Name: "vg0", PhysicalVolumes: []string{"/dev/md0"}, LogicalVolumes: []LogicalVolume{baseLV}}, ""},

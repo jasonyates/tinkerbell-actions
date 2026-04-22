@@ -50,12 +50,12 @@ func ValidateVolumeGroup(vg VolumeGroup) error {
 // preflight in rootio cmd's wipe/partition paths. Call BEFORE StopRAID.
 func TeardownVolumeGroups(vgs []VolumeGroup) {
 	for _, vg := range vgs {
-		_ = lvm.DeactivateVolumeGroup(vg.Name)
-		_ = lvm.RemoveVolumeGroup(vg.Name)
+		lvm.DeactivateVolumeGroup(vg.Name)
+		lvm.RemoveVolumeGroup(vg.Name)
 	}
 	for _, vg := range vgs {
 		for _, pv := range vg.PhysicalVolumes {
-			_ = lvm.RemovePhysicalVolume(pv)
+			lvm.RemovePhysicalVolume(pv)
 		}
 	}
 }
