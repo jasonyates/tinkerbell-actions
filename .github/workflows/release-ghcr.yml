@@ -4,6 +4,7 @@ on:
     branches:
       - main
       - feat/rootio-sw-raid
+      - feat/root-on-lvm
   workflow_dispatch: {}
 
 env:
