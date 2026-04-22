@@ -1,7 +1,8 @@
 #!/bin/bash
-# Build a Noble rootfs tarball customised for mdadm RAID1 + BIOS or EFI boot.
+# Build a Noble rootfs tarball customised for mdadm RAID1 (+ optional LVM)
+# with BIOS or EFI boot.
 # Starts from Canonical's prebuilt root tarball (the same artefact MAAS uses),
-# chroots in to add mdadm + grub-{pc,efi}, and re-tars as gzip for archive2disk.
+# chroots in to add mdadm + lvm2 + grub-{pc,efi}, and re-tars as gzip for archive2disk.
 #
 # One-time admin task. Re-run whenever you want to refresh (e.g. CVE patches).
 # Requires: wget, tar, sudo, chroot. Run on a trusted build host.
@@ -58,7 +59,7 @@ sudo mount --make-rslave rootfs/sys 2>/dev/null || true
 sudo rm -f rootfs/etc/resolv.conf
 sudo cp -L /etc/resolv.conf rootfs/etc/resolv.conf
 
-# 4. Install mdadm + bootloader inside the chroot
+# 4. Install mdadm + lvm2 + bootloader inside the chroot
 sudo chroot rootfs /bin/bash -eux <<CHROOT
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -69,12 +70,14 @@ echo 'grub-pc grub-pc/install_devices multiselect' | debconf-set-selections
 
 if [ "${MODE}" = "efi" ]; then
   apt-get install -y --no-install-recommends \\
-    mdadm grub-common grub-efi-amd64 grub-efi-amd64-bin \\
+    mdadm lvm2 thin-provisioning-tools \\
+    grub-common grub-efi-amd64 grub-efi-amd64-bin \\
     efibootmgr dosfstools initramfs-tools
   apt-get purge -y grub-pc grub-pc-bin 2>/dev/null || true
 else
   apt-get install -y --no-install-recommends \\
-    mdadm grub-common grub-pc initramfs-tools
+    mdadm lvm2 thin-provisioning-tools \\
+    grub-common grub-pc initramfs-tools
   apt-get purge -y grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed 2>/dev/null || true
 fi
 
