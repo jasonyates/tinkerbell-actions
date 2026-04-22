@@ -178,6 +178,30 @@ func run(cmd string, extraArgs ...string) error {
 	return c.Run()
 }
 
+// DeactivateVolumeGroup deactivates a VG if present. Non-fatal if missing.
+func DeactivateVolumeGroup(name string) error {
+	c := exec.Command("/sbin/lvm", "vgchange", "-an", name)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	_ = c.Run()
+	return nil
+}
+
+// RemoveVolumeGroup removes a VG + all its LVs. Non-fatal if missing.
+func RemoveVolumeGroup(name string) error {
+	c := exec.Command("/sbin/lvm", "vgremove", "-ff", name)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	_ = c.Run()
+	return nil
+}
+
+// RemovePhysicalVolume clears the LVM PV signature from dev. Non-fatal.
+func RemovePhysicalVolume(dev string) error {
+	c := exec.Command("/sbin/lvm", "pvremove", "-ff", "-y", dev)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	_ = c.Run()
+	return nil
+}
+
 // isInsufficientSpace returns true if the error is due to insufficient space.
 func isInsufficientSpace(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "insufficient free space")

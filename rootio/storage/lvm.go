@@ -45,6 +45,21 @@ func ValidateVolumeGroup(vg VolumeGroup) error {
 	return nil
 }
 
+// TeardownVolumeGroups deactivates and removes each VG in metadata, then
+// clears PV signatures from every PV. Best-effort; mirrors the RAID
+// preflight in rootio cmd's wipe/partition paths. Call BEFORE StopRAID.
+func TeardownVolumeGroups(vgs []VolumeGroup) {
+	for _, vg := range vgs {
+		_ = lvm.DeactivateVolumeGroup(vg.Name)
+		_ = lvm.RemoveVolumeGroup(vg.Name)
+	}
+	for _, vg := range vgs {
+		for _, pv := range vg.PhysicalVolumes {
+			_ = lvm.RemovePhysicalVolume(pv)
+		}
+	}
+}
+
 func CreateVolumeGroup(volumeGroup VolumeGroup) error {
 	if err := ValidateVolumeGroup(volumeGroup); err != nil {
 		return err
