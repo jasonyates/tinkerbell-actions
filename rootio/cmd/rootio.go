@@ -86,6 +86,10 @@ var rootioPartition = &cobra.Command{
 	Use:   "partition",
 	Short: "Use rootio to partition disks based upon metadata",
 	Run: func(_ *cobra.Command, _ []string) {
+		// LVM preflight: deactivate + remove VGs and wipe PV signatures
+		// before we tear down the RAID arrays they may sit on top of.
+		storage.TeardownVolumeGroups(metadata.Instance.Storage.VolumeGroups)
+
 		for _, r := range metadata.Instance.Storage.RAID {
 			if err := storage.StopRAID(r.Name); err != nil {
 				log.Error(err)
@@ -151,6 +155,10 @@ var rootioWipe = &cobra.Command{
 	Use:   "wipe",
 	Short: "Use rootio to wipe disks based upon metadata",
 	Run: func(_ *cobra.Command, _ []string) {
+		// LVM preflight: deactivate + remove VGs and wipe PV signatures
+		// before we tear down the RAID arrays they may sit on top of.
+		storage.TeardownVolumeGroups(metadata.Instance.Storage.VolumeGroups)
+
 		for _, r := range metadata.Instance.Storage.RAID {
 			if err := storage.StopRAID(r.Name); err != nil {
 				log.Error(err)
