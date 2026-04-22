@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "instance": {
+      "crypted_root_password": "$6$password$u/Cn/tSGIYFtqv4AwZ9tjP1gMxjlvLHt3KO8zbK6ZnMn8anv6tSCo.XidktlU0MdRjWe3./lahF9FTMcnja9q.",
+      "hostname": "lvm-test-001",
+      "operating_system_version": {
+        "distro": "debian",
+        "os_codename": "bookworm",
+        "os_slug": "debian_12",
+        "version": "12"
+      },
+      "storage": {
+        "disks": [
+          {
+            "device": "/dev/sda",
+            "wipe_table": true,
+            "partitions": [
+              {"label": "EFI",   "number": 1, "size": 524288},
+              {"label": "LINUX", "number": 2, "size": 0}
+            ]
+          },
+          {
+            "device": "/dev/sdb",
+            "wipe_table": true,
+            "partitions": [
+              {"label": "EFI",   "number": 1, "size": 524288},
+              {"label": "LINUX", "number": 2, "size": 0}
+            ]
+          }
+        ],
+        "raid": [
+          {
+            "name": "/dev/md0",
+            "level": "1",
+            "devices": ["/dev/sda2", "/dev/sdb2"]
+          }
+        ],
+        "volume_groups": [
+          {
+            "name": "vg0",
+            "physical_volumes": ["/dev/md0"],
+            "logical_volumes": [
+              {"name": "root",   "size": 42949672960},
+              {"name": "var",    "size": 42949672960},
+              {"name": "home",   "size": 10737418240},
+              {"name": "docker", "size": 0}
+            ]
+          }
+        ],
+        "filesystems": [
+          {
+            "mount": {
+              "create": {"options": ["-F", "32", "-n", "EFI_SDA"]},
+              "device": "/dev/sda1",
+              "format": "vfat",
+              "point": "/boot/efi"
+            }
+          },
+          {
+            "mount": {
+              "create": {"options": ["-F", "32", "-n", "EFI_SDB"]},
+              "device": "/dev/sdb1",
+              "format": "vfat",
+              "point": "/boot/efi2"
+            }
+          },
+          {
+            "mount": {
+              "create": {"options": ["-L", "ROOT"]},
+              "device": "/dev/vg0/root",
+              "format": "ext4",
+              "point": "/"
+            }
+          },
+          {
+            "mount": {
+              "create": {"options": ["-L", "VAR"]},
+              "device": "/dev/vg0/var",
+              "format": "ext4",
+              "point": "/var"
+            }
+          },
+          {
+            "mount": {
+              "create": {"options": ["-L", "HOME"]},
+              "device": "/dev/vg0/home",
+              "format": "ext4",
+              "point": "/home"
+            }
+          },
+          {
+            "mount": {
+              "create": {"options": ["-L", "DOCKER"]},
+              "device": "/dev/vg0/docker",
+              "format": "ext4",
+              "point": "/var/lib/docker"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

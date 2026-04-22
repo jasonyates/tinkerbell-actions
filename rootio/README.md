@@ -154,3 +154,28 @@ On re-runs, the `partition` and `wipe` commands stop any active array
 named in metadata and zero the mdadm superblock from its member devices
 before repartitioning, so the action is idempotent against a previously
 deployed host.
+
+**LVM on top of RAID**
+
+The `partition` command can also create LVM volume groups and logical
+volumes after RAID assembly. Declare them under `storage.volume_groups`
+in the metadata; each VG's `physical_volumes` typically points at a
+`/dev/mdX` device so root-on-LVM can sit on top of a RAID1 mirror.
+
+A typical layout has a single `vg0` on `/dev/md0` with LVs for `/`,
+`/var`, `/home`, and `/var/lib/docker`. A logical volume with `size: 0`
+means "use all remaining free space" (maps to `lvcreate -l 100%FREE`);
+at most one such LV is allowed per VG and it must be the last entry.
+
+See [`test/lvm.json`](test/lvm.json) for a worked two-disk EFI + RAID1 +
+LVM fixture.
+
+Note the size-units inconsistency inherited from the Equinix CPR
+convention: partition sizes are in 512-byte sectors, but
+`LogicalVolume.size` is in bytes. A 40 GiB LV is `42949672960`, a 512 MiB
+EFI partition is `524288` sectors.
+
+On re-runs, the `partition` and `wipe` commands deactivate and remove
+any VGs named in metadata and clear LVM PV signatures from their
+backing devices before tearing down the RAID arrays, so LVM-on-RAID
+deployments stay idempotent.
