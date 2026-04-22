@@ -18,11 +18,23 @@ OUT_BASE="${OUT_BASE:-noble-rootfs-${MODE}}"
 mkdir -p "$WORK" "$OUT_DIR"
 cd "$WORK"
 
+# Unmount anything mounted under $1 (an absolute path), deepest-first.
+# Uses /proc/mounts directly because (a) findmnt can miss entries across
+# mount namespace boundaries, and (b) umount -R only works when its
+# argument is itself a mountpoint — here the rootfs dir is a plain
+# directory with bind-mounts nested inside it.
+unmount_under() {
+  local path="$1"
+  grep -E " ${path}(/|\$)" /proc/mounts | awk '{print $2}' \
+    | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- \
+    | xargs -r -n1 sudo umount -l 2>/dev/null || true
+}
+
 # If a previous run crashed before unmounting, leftover bind mounts under
 # rootfs/ will make `rm -rf` fail with "Operation not permitted" on sysfs
 # entries. Tear them down before continuing.
-if [ -d rootfs ] && findmnt -n -R "$PWD/rootfs" >/dev/null 2>&1; then
-  findmnt -n -R "$PWD/rootfs" -o TARGET | tac | xargs -r -n1 sudo umount -l
+if [ -d rootfs ]; then
+  unmount_under "$PWD/rootfs"
 fi
 
 # 1. Fetch Canonical's prebuilt root tarball (already contains the kernel,
@@ -41,8 +53,7 @@ cleanup() {
   # Tear down deepest-first so nested mounts (efivarfs under /sys, etc.) go
   # before their parent; lazy so we don't block on EBUSY.
   if [ -d rootfs ]; then
-    findmnt -n -R "$PWD/rootfs" -o TARGET 2>/dev/null | tac \
-      | xargs -r -n1 sudo umount -l 2>/dev/null || true
+    unmount_under "$PWD/rootfs"
   fi
 }
 trap cleanup EXIT
