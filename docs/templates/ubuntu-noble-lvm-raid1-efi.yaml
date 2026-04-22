@@ -1,0 +1,216 @@
+apiVersion: tinkerbell.org/v1alpha1
+kind: Template
+metadata:
+  name: ubuntu-noble-lvm-raid1-efi
+  namespace: tink-system
+  labels:
+    os: ubuntu
+    pretty-name: ubuntu-noble-lvm-raid1-efi
+spec:
+  data: |
+    version: "0.1"
+    name: ubuntu-noble-lvm-raid1-efi
+    global_timeout: 432000
+    tasks:
+      - name: "os-installation"
+        worker: "{{ .device_1 }}"
+        volumes:
+          - /dev:/dev
+          - /dev/console:/dev/console
+          - /lib/firmware:/lib/firmware:ro
+          - /sys:/sys
+        actions:
+          # 1. Partition (ESP + LINUX on each disk), assemble /dev/md0 over LINUX,
+          # then create vg0 on /dev/md0 with logical volumes root/var/home/docker.
+          - name: "rootio-partition"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
+            timeout: 180
+            command: ["partition"]
+            environment:
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 2. mkfs: ext4 on each LV, FAT32 on each ESP.
+          - name: "rootio-format"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
+            timeout: 180
+            command: ["format"]
+            environment:
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 3. Extract the EFI-flavoured Noble rootfs onto /dev/vg0/root.
+          - name: "extract-rootfs"
+            image: ghcr.io/jasonyates/tinkerbell-actions/archive2disk:latest
+            timeout: 900
+            environment:
+              ARCHIVE_URL: "http://31.24.228.5:7173/noble-rootfs-efi.tar.gz"
+              ARCHIVE_TYPE: "targz"
+              DEST_DISK: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              DEST_PATH: "/"
+              INSECURE_NO_TARFILE_CHECKSUM_VERIFICATION: "true"
+
+          # 4. Default netplan: DHCP all ethernet interfaces on first boot so
+          # cloud-init can reach tootles to fetch user-data. User-data itself
+          # can rewrite this netplan with static config via write_files +
+          # `netplan apply` (or by emitting a file at higher priority).
+          - name: "configure-network-dhcp"
+            image: ghcr.io/jasonyates/tinkerbell-actions/writefile:latest
+            timeout: 60
+            environment:
+              DEST_DISK: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              DEST_PATH: "/etc/netplan/50-tinkerbell-dhcp.yaml"
+              UID: "0"
+              GID: "0"
+              MODE: "0600"
+              DIRMODE: "0755"
+              CONTENTS: |
+                network:
+                  version: 2
+                  ethernets:
+                    all-en:
+                      match:
+                        name: "en*"
+                      dhcp4: true
+                      dhcp6: false
+                      optional: true
+                    all-eth:
+                      match:
+                        name: "eth*"
+                      dhcp4: true
+                      dhcp6: false
+                      optional: true
+
+          # 5. Wire cloud-init to this stack's tootles as an EC2 datasource.
+          # Tootles serves /2009-04-04/user-data and meta-data/* by the caller's
+          # IP; cloud-init's DataSourceEc2 consumes exactly that shape.
+          # Per-stack config (tootles URL) lives here, not in the rootfs image.
+          - name: "configure-cloud-init"
+            image: ghcr.io/jasonyates/tinkerbell-actions/writefile:latest
+            timeout: 60
+            environment:
+              DEST_DISK: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              DEST_PATH: "/etc/cloud/cloud.cfg.d/90-tinkerbell.cfg"
+              UID: "0"
+              GID: "0"
+              MODE: "0644"
+              DIRMODE: "0755"
+              CONTENTS: |
+                datasource_list: [ Ec2, NoCloud, None ]
+                datasource:
+                  Ec2:
+                    metadata_urls: [ "http://31.24.228.5:7080" ]
+                    strict_id: false
+                    metadata_version: 2009-04-04
+
+          # 5. Set root password + enable root SSH (bootstrap credential; rotate
+          # once you're driving users/keys via Hardware CR spec.userData).
+          - name: "set-root-password"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 120
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "sed -i 's/^#*PermitRootLogin.*$/PermitRootLogin yes/g' /etc/ssh/sshd_config; echo root:password | chpasswd; passwd -u root"
+
+          # 5. Write mdadm.conf so the initramfs can assemble /dev/md0 at boot
+          # (the lvm2 initramfs hook scans PVs and activates vg0 on top of it).
+          - name: "configure-mdadm"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 120
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf"
+
+          # 6. Write /etc/fstab — LVs for /, /var, /home, /var/lib/docker; both ESPs.
+          - name: "configure-fstab"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 60
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "printf 'LABEL=ROOT / ext4 defaults 0 1\nLABEL=VAR /var ext4 defaults 0 2\nLABEL=HOME /home ext4 defaults 0 2\nLABEL=DOCKER /var/lib/docker ext4 defaults 0 2\nLABEL=EFI_SDA /boot/efi vfat defaults,nofail 0 2\nLABEL=EFI_SDB /boot/efi2 vfat defaults,nofail 0 2\n' > /etc/fstab"
+
+          # 7. Preload the lvm + mdraid1x GRUB modules so root-on-LVM-on-RAID
+          # boots even if grub-install's auto-detection misses one of them.
+          - name: "configure-grub-lvm"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 60
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "echo 'GRUB_PRELOAD_MODULES=\"lvm mdraid1x\"' >> /etc/default/grub"
+
+          # 8. Regenerate initramfs so it includes mdadm + lvm2 hooks and the
+          # mdadm.conf written above.
+          - name: "update-initramfs"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "update-initramfs -u -k all"
+
+          # 9. Install GRUB to sda's ESP, copy to the firmware fallback path,
+          # and generate grub.cfg pointing at the LV root.
+          - name: "grub-install-sda"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "mkdir -p /boot/efi; mount /dev/sda1 /boot/efi; grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck --no-nvram; update-grub; mkdir -p /boot/efi/EFI/BOOT; cp /boot/efi/EFI/ubuntu/shimx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || cp /boot/efi/EFI/ubuntu/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI; cp /boot/efi/EFI/ubuntu/grubx64.efi /boot/efi/EFI/BOOT/grubx64.efi 2>/dev/null || true; umount /boot/efi"
+
+          # 10. Install GRUB to sdb's ESP (backup bootloader, mirrors step 9).
+          - name: "grub-install-sdb"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 300
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "mkdir -p /boot/efi; mount /dev/sdb1 /boot/efi; grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu-backup --recheck --no-nvram; mkdir -p /boot/efi/EFI/BOOT; cp /boot/efi/EFI/ubuntu-backup/shimx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || cp /boot/efi/EFI/ubuntu-backup/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI; cp /boot/efi/EFI/ubuntu-backup/grubx64.efi /boot/efi/EFI/BOOT/grubx64.efi 2>/dev/null || true; umount /boot/efi"
+
+          # 11. Register NVRAM entries for both disks. Best-effort — if efivarfs
+          # isn't writable from the provisioning container, the firmware
+          # fallback path populated in steps 9-10 still lets the disks boot.
+          - name: "register-efi-boot-entries"
+            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            timeout: 120
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              CHROOT: "y"
+              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
+              CMD_LINE: "efibootmgr --create --disk /dev/sda --part 1 --label 'ubuntu' --loader '\\EFI\\ubuntu\\shimx64.efi' || efibootmgr --create --disk /dev/sda --part 1 --label 'ubuntu' --loader '\\EFI\\ubuntu\\grubx64.efi' || true; efibootmgr --create --disk /dev/sdb --part 1 --label 'ubuntu-backup' --loader '\\EFI\\ubuntu-backup\\grubx64.efi' || true"
+
+          # 12. Reboot the host into the installed OS. waitdaemon defers the
+          # reboot so tink-agent can report this action's success before the
+          # host drops — otherwise the workflow would be stuck in "running".
+          - name: "reboot"
+            image: docker.repo.thghosting.cloud/dca/waitdaemon:v0.1.1
+            timeout: 90
+            pid: host
+            command: ["reboot"]
+            environment:
+              IMAGE: docker.repo.thghosting.cloud/dca/alpine:latest
+              WAIT_SECONDS: 10
+            volumes:
+              - /var/run/docker.sock:/var/run/docker.sock
