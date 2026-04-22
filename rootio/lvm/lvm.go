@@ -22,7 +22,7 @@ type VolumeGroup struct {
 
 // CreatePhysicalVolume creates a physical volume of the given device.
 func CreatePhysicalVolume(dev string) error {
-	if err := run("lvm", "pvcreate", dev); err != nil {
+	if err := run("/sbin/lvm", "pvcreate", dev); err != nil {
 		return fmt.Errorf("lvm: CreatePhysicalVolume: %w", err)
 	}
 	return nil
@@ -36,7 +36,7 @@ func PVScan(dev string) error {
 	if dev != "" {
 		args = append(args, dev)
 	}
-	return run("lvm", args...)
+	return run("/sbin/lvm", args...)
 }
 
 // VGScan runs the `vgscan --cache <name>` command. It scans for the
@@ -47,7 +47,7 @@ func VGScan(name string) error {
 	if name != "" {
 		args = append(args, name)
 	}
-	return run("lvm", args...)
+	return run("/sbin/lvm", args...)
 }
 
 // ValidateVolumeGroupName validates a volume group name. A valid volume group
@@ -97,7 +97,7 @@ func CreateVolumeGroup(name string, pvs []string, tags []string) (*VolumeGroup, 
 	args = append(args, name)
 	args = append(args, pvs...)
 
-	if err := run("lvm", args...); err != nil {
+	if err := run("/sbin/lvm", args...); err != nil {
 		return nil, err
 	}
 
@@ -157,7 +157,7 @@ func (vg *VolumeGroup) CreateLogicalVolume(name string, sizeInBytes uint64, tags
 	args = append(args, vg.name)
 	args = append(args, opts...)
 
-	if err := run("lvm", args...); err != nil {
+	if err := run("/sbin/lvm", args...); err != nil {
 		if isInsufficientSpace(err) {
 			return fmt.Errorf("lvm: not enough free space")
 		}
