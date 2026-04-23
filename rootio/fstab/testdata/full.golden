@@ -1,0 +1,6 @@
+LABEL=ROOT  /  ext4  defaults  0  1
+LABEL=VAR  /var  ext4  defaults  0  2
+LABEL=HOME  /home  ext4  defaults  0  2
+LABEL=DOCKER  /var/lib/docker  ext4  defaults  0  2
+LABEL=EFI_SDA  /boot/efi  vfat  defaults,nofail  0  2
+LABEL=EFI_SDB  /boot/efi2  vfat  defaults,nofail  0  2

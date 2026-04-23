@@ -9,6 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/tinkerbell/actions/pkg/chroot"
+	"github.com/tinkerbell/actions/rootio/fstab"
 	"github.com/tinkerbell/actions/rootio/storage"
 )
 
@@ -30,6 +32,7 @@ func init() {
 	rootioCmd.AddCommand(rootioFormat)
 	rootioCmd.AddCommand(rootioPartition)
 	rootioCmd.AddCommand(rootioMount)
+	rootioCmd.AddCommand(rootioFstab)
 	rootioCmd.AddCommand(rootioVersion)
 
 	// Find configuration
@@ -79,6 +82,23 @@ var rootioMount = &cobra.Command{
 			if err != nil {
 				log.Error(err)
 			}
+		}
+	},
+}
+
+var rootioFstab = &cobra.Command{
+	Use:   "fstab",
+	Short: "Generate /etc/fstab from storage.filesystems metadata",
+	Run: func(_ *cobra.Command, _ []string) {
+		body := fstab.Render(metadata.Instance.Storage.Filesystems)
+		if body == "" {
+			log.Warn("fstab: no labeled filesystems; writing empty /etc/fstab")
+		}
+		if err := chroot.Enter(os.Getenv("BLOCK_DEVICE"), os.Getenv("FS_TYPE")); err != nil {
+			log.Fatal(err)
+		}
+		if err := os.WriteFile("/etc/fstab", []byte(body), 0o644); err != nil {
+			log.Fatal(err)
 		}
 	},
 }
