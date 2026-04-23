@@ -73,16 +73,17 @@ func TestFetch_non200(t *testing.T) {
 }
 
 func TestNew_missingMirrorHost(t *testing.T) {
-	os.Unsetenv("MIRROR_HOST")
+	// t.Setenv to "" is equivalent to unset for our os.Getenv == "" check,
+	// and auto-restores any prior value at test end.
+	t.Setenv("MIRROR_HOST", "")
 	if _, err := New(); err == nil {
 		t.Fatal("want error when MIRROR_HOST unset")
 	}
 }
 
 func TestNew_defaultsPort(t *testing.T) {
-	os.Setenv("MIRROR_HOST", "1.2.3.4")
-	os.Unsetenv("METADATA_SERVICE_PORT")
-	defer os.Unsetenv("MIRROR_HOST")
+	t.Setenv("MIRROR_HOST", "1.2.3.4")
+	t.Setenv("METADATA_SERVICE_PORT", "")
 	c, err := New()
 	if err != nil {
 		t.Fatal(err)
