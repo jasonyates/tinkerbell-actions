@@ -137,7 +137,11 @@ func (vg *VolumeGroup) CreateLogicalVolume(name string, sizeInBytes uint64, tags
 	}
 
 	// Validate the tag.
-	args := []string{"lvcreate"}
+	// -Wy / --yes: auto-wipe stale filesystem signatures on the new LV
+	// extent and answer "yes" to any confirmation prompts. lvcreate
+	// runs non-interactively here (no tty), so the default "no" would
+	// abort on any prior signature left from an earlier provision.
+	args := []string{"lvcreate", "-Wy", "--yes"}
 	for _, tag := range tags {
 		if tag != "" {
 			if err := ValidateTag(tag); err != nil {
