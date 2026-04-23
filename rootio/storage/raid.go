@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -102,8 +103,36 @@ func StopRAID(name string) error {
 	if _, err := os.Stat(dev); os.IsNotExist(err) {
 		return nil
 	}
+	// Force-unmount any mountpoint backed by this device. HookOS (or
+	// leftover state from a previous install) sometimes auto-assembles
+	// and auto-mounts old arrays at boot, which makes mdadm --stop and
+	// the subsequent partition wipe fail with EBUSY. Best-effort; a
+	// no-op when the mount namespace doesn't include the host's mounts.
+	forceUnmount(dev)
+
 	log.Infof("Stopping RAID array %s", dev)
 	return runMdadm("--stop", dev)
+}
+
+// forceUnmount reads /proc/mounts and lazy-force-unmounts every
+// mountpoint backed by dev. Best-effort — errors are logged but
+// never returned.
+func forceUnmount(dev string) {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != dev {
+			continue
+		}
+		mp := fields[1]
+		log.Infof("Force-unmounting %s from %s before stopping array", dev, mp)
+		if err := syscall.Unmount(mp, syscall.MNT_FORCE|syscall.MNT_DETACH); err != nil {
+			log.Warnf("umount %s: %v (continuing)", mp, err)
+		}
+	}
 }
 
 // ZeroSuperblock clears any mdadm superblock from a member device. Ignores

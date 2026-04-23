@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
@@ -57,6 +58,15 @@ func main() {
 		log.Fatalf("Error creating the action Mountpoint [%s]", mountAction)
 	}
 
+	// Force-unmount any pre-existing mount of this device before we
+	// try to mount it ourselves. HookOS (or leftover state from a
+	// previous install) occasionally auto-assembles + auto-mounts
+	// md arrays and filesystems on boot, which makes our mount fail
+	// with EBUSY. Best-effort — a no-op when there's nothing to
+	// unmount, or when the mount namespace doesn't include the
+	// offending mount.
+	forceUnmount(blockDevice)
+
 	// Mount the block device to the /mountAction point
 	err = syscall.Mount(blockDevice, mountAction, filesystemType, 0, "")
 	if err != nil {
@@ -70,4 +80,26 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Infof("Successfully unpacked [%s] to [%s] on device [%s]", archiveURL, path, blockDevice)
+}
+
+// forceUnmount reads /proc/mounts and lazy-force-unmounts every
+// mountpoint backed by dev. Best-effort; errors are logged but never
+// fatal so a first-provision run (where no stale mount exists) still
+// proceeds.
+func forceUnmount(dev string) {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != dev {
+			continue
+		}
+		mp := fields[1]
+		log.Infof("Force-unmounting %s from %s before mount", dev, mp)
+		if err := syscall.Unmount(mp, syscall.MNT_FORCE|syscall.MNT_DETACH); err != nil {
+			log.Warnf("umount %s: %v (continuing)", mp, err)
+		}
+	}
 }
