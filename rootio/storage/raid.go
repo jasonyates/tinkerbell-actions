@@ -11,13 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// RAID defines a software RAID array to assemble with mdadm.
-type RAID struct {
-	Name    string   `json:"name"`
-	Level   string   `json:"level"`
-	Devices []string `json:"devices"`
-	Spare   []string `json:"spare,omitempty"`
-}
+// RAID is aliased from pkg/metadata via types.go so the wire format
+// stays a single source of truth; see storage/types.go.
 
 // Accept both the numeric mdadm form (md0, /dev/md0) and the udev-style
 // named form (/dev/md/<name>). The named form is what mdadm produces when
