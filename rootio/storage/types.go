@@ -38,11 +38,13 @@ type Wrapper struct {
 
 // RetrieveData fetches Hegel metadata via the shared pkg/metadata
 // client. Kept at package level so cmd/rootio.go doesn't need
-// restructuring.
-func RetrieveData() (*Metadata, error) {
+// restructuring. Takes a context so future callers can propagate
+// cancellation; the rootio cobra commands currently pass
+// context.Background().
+func RetrieveData(ctx context.Context) (*Metadata, error) {
 	c, err := metadata.New()
 	if err != nil {
 		return nil, err
 	}
-	return c.Fetch(context.Background())
+	return c.Fetch(ctx)
 }

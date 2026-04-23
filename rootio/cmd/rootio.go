@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,7 +41,7 @@ func init() {
 			log.Fatal(err)
 		}
 	} else {
-		metadata, err = storage.RetrieveData()
+		metadata, err = storage.RetrieveData(context.Background())
 		if err != nil {
 			log.Fatal(err)
 		}
