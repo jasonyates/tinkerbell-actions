@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tinkerbell/actions/grub2disk/grub"
 	"github.com/tinkerbell/actions/pkg/chroot"
+	"github.com/tinkerbell/actions/pkg/metadata"
 )
 
 // grub2disk installs GRUB into the target root of a Tinkerbell-
@@ -32,7 +34,7 @@ func main() {
 
 	log.Infof("grub2disk - MODE=%s", mode)
 
-	if err := chroot.Enter(blockDev, fsType); err != nil {
+	if err := chroot.Enter(blockDev, fsType, fetchSiblings()); err != nil {
 		log.Fatal(err)
 	}
 
@@ -130,6 +132,28 @@ func parseEFIPartition(p string) (disk string, part int) {
 	// NVMe: /dev/nvme0n1p1 — trim the trailing 'p' if present.
 	disk = strings.TrimSuffix(disk, "p")
 	return disk, n
+}
+
+// fetchSiblings returns metadata.instance.storage.filesystems when
+// MIRROR_HOST is set, so chroot.Enter can mount sibling LVs (/var,
+// /home, …) before chrooting. Returns nil (no siblings) for legacy
+// env-only flows that don't set MIRROR_HOST. Failures are logged and
+// degraded — grub-install still works on a root-only mount tree.
+func fetchSiblings() []metadata.Filesystem {
+	if os.Getenv("MIRROR_HOST") == "" {
+		return nil
+	}
+	c, err := metadata.New()
+	if err != nil {
+		log.Warnf("grub2disk: metadata client: %v (continuing without siblings)", err)
+		return nil
+	}
+	md, err := c.Fetch(context.Background())
+	if err != nil {
+		log.Warnf("grub2disk: metadata fetch: %v (continuing without siblings)", err)
+		return nil
+	}
+	return md.Instance.Storage.Filesystems
 }
 
 func envOr(key, def string) string {

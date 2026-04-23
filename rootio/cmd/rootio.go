@@ -94,7 +94,7 @@ var rootioFstab = &cobra.Command{
 		if body == "" {
 			log.Warn("fstab: no labeled filesystems; writing empty /etc/fstab")
 		}
-		if err := chroot.Enter(os.Getenv("BLOCK_DEVICE"), os.Getenv("FS_TYPE")); err != nil {
+		if err := chroot.Enter(os.Getenv("BLOCK_DEVICE"), os.Getenv("FS_TYPE"), metadata.Instance.Storage.Filesystems); err != nil {
 			log.Fatal(err)
 		}
 		if err := os.WriteFile("/etc/fstab", []byte(body), 0o644); err != nil {

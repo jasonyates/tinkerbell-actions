@@ -27,7 +27,7 @@ func main() {
 	}
 	inst := md.Instance
 
-	if err := chroot.Enter(os.Getenv("BLOCK_DEVICE"), os.Getenv("FS_TYPE")); err != nil {
+	if err := chroot.Enter(os.Getenv("BLOCK_DEVICE"), os.Getenv("FS_TYPE"), md.Instance.Storage.Filesystems); err != nil {
 		log.Fatal(err)
 	}
 

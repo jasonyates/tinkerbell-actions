@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tinkerbell/actions/archive2disk/archive"
+	"github.com/tinkerbell/actions/pkg/chroot"
+	"github.com/tinkerbell/actions/pkg/metadata"
 )
 
 const mountAction = "/mountAction"
@@ -52,12 +55,6 @@ func main() {
 		log.Fatalf("No Block Device speified with Environment Variable [DEST_DISK]")
 	}
 
-	// Create the /mountAction mountpoint (no folders exist previously in scratch container)
-	err = os.Mkdir(mountAction, os.ModeDir)
-	if err != nil {
-		log.Fatalf("Error creating the action Mountpoint [%s]", mountAction)
-	}
-
 	// Force-unmount any pre-existing mount of this device before we
 	// try to mount it ourselves. HookOS (or leftover state from a
 	// previous install) occasionally auto-assembles + auto-mounts
@@ -67,12 +64,17 @@ func main() {
 	// offending mount.
 	forceUnmount(blockDevice)
 
-	// Mount the block device to the /mountAction point
-	err = syscall.Mount(blockDevice, mountAction, filesystemType, 0, "")
-	if err != nil {
-		log.Fatalf("Mounting [%s] -> [%s] error [%v]", blockDevice, mountAction, err)
+	// Mount primary + siblings. When MIRROR_HOST is set we fetch
+	// metadata and mount every non-root, non-ESP filesystem (e.g.
+	// /var, /home, /var/lib/docker) under /mountAction so the tarball
+	// extract lands directly on the right LVs instead of populating
+	// root-LV paths that later get shadowed by the sibling mounts at
+	// boot. Without MIRROR_HOST (legacy flows) we mount only primary.
+	extras := fetchSiblings()
+	if err := chroot.MountTree(blockDevice, filesystemType, extras); err != nil {
+		log.Fatalf("Mount tree: %v", err)
 	}
-	log.Infof("Mounted [%s] -> [%s]", blockDevice, mountAction)
+	log.Infof("Mounted [%s] -> [%s] (+%d sibling filesystems)", blockDevice, mountAction, len(extras))
 
 	// Write the image to disk
 	err = archive.Write(archiveURL, archiveType, filepath.Join(mountAction, path), tarfileChecksum, httpClientTimoutMinutes)
@@ -80,6 +82,26 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Infof("Successfully unpacked [%s] to [%s] on device [%s]", archiveURL, path, blockDevice)
+}
+
+// fetchSiblings returns metadata.instance.storage.filesystems when
+// MIRROR_HOST is set. Logged-and-continued on error so legacy
+// single-LV flows still work when Hegel isn't configured.
+func fetchSiblings() []metadata.Filesystem {
+	if os.Getenv("MIRROR_HOST") == "" {
+		return nil
+	}
+	c, err := metadata.New()
+	if err != nil {
+		log.Warnf("metadata client: %v (continuing without siblings)", err)
+		return nil
+	}
+	md, err := c.Fetch(context.Background())
+	if err != nil {
+		log.Warnf("metadata fetch: %v (continuing without siblings)", err)
+		return nil
+	}
+	return md.Instance.Storage.Filesystems
 }
 
 // forceUnmount reads /proc/mounts and lazy-force-unmounts every

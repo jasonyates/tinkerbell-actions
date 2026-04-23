@@ -40,6 +40,10 @@ spec:
               MIRROR_HOST: "31.24.228.5"
 
           # 3. Extract the EFI-flavoured Noble rootfs onto /dev/vg0/root.
+          # MIRROR_HOST + METADATA_SERVICE_PORT turn on sibling mounts
+          # so the tarball's /var, /home, /var/lib/docker land on the
+          # matching LVs instead of the root LV (where the /var LV
+          # mount at boot would otherwise shadow them).
           - name: "extract-rootfs"
             image: ghcr.io/jasonyates/tinkerbell-actions/archive2disk:latest
             timeout: 900
@@ -50,6 +54,8 @@ spec:
               FS_TYPE: "ext4"
               DEST_PATH: "/"
               INSECURE_NO_TARFILE_CHECKSUM_VERIFICATION: "true"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
           # 4. Default netplan: DHCP all ethernet interfaces on first boot so
           # cloud-init can reach tootles to fetch user-data. User-data itself
@@ -129,6 +135,8 @@ spec:
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
           # 8. Generate /etc/fstab from storage.filesystems labels in metadata.
           - name: "rootio-fstab"
@@ -154,6 +162,8 @@ spec:
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "echo 'GRUB_PRELOAD_MODULES=\"lvm mdraid1x\"' >> /etc/default/grub"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
           # 10. Apply serial console (tty + baud) from metadata. No-op when
           # metadata has no console{} block.
@@ -167,7 +177,8 @@ spec:
               MIRROR_HOST: "31.24.228.5"
 
           # 11. Regenerate initramfs so it includes mdadm + lvm2 hooks and the
-          # mdadm.conf written above.
+          # mdadm.conf written above. Sibling mounts matter here — dpkg
+          # triggers invoked by update-initramfs can touch /var/lib.
           - name: "update-initramfs"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
             timeout: 300
@@ -177,6 +188,8 @@ spec:
               CHROOT: "y"
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "update-initramfs -u -k all"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
           # 12. Install GRUB to sda's ESP. grub2disk MODE=efi handles install,
           # firmware fallback copy, and best-effort NVRAM registration.
@@ -189,6 +202,8 @@ spec:
               MODE: "efi"
               EFI_PARTITION: "/dev/sda1"
               BOOTLOADER_ID: "ubuntu"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
           # 13. Install GRUB to sdb's ESP (backup bootloader, mirrors step 12).
           - name: "grub-install-sdb"
@@ -200,6 +215,8 @@ spec:
               MODE: "efi"
               EFI_PARTITION: "/dev/sdb1"
               BOOTLOADER_ID: "ubuntu-backup"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
           # 14. Reboot the host into the installed OS. waitdaemon defers the
           # reboot so tink-agent can report this action's success before the

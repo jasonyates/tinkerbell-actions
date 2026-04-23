@@ -14,6 +14,8 @@ import (
 	"syscall"
 
 	"github.com/peterbourgon/ff/v3"
+	chrootpkg "github.com/tinkerbell/actions/pkg/chroot"
+	"github.com/tinkerbell/actions/pkg/metadata"
 )
 
 const (
@@ -118,6 +120,22 @@ func (s settings) cexec(ctx context.Context, log *slog.Logger) error {
 		}
 	}()
 	log.Info("mounted device successfully", "source", s.blockDevice, "destination", mountAction)
+
+	// When MIRROR_HOST is set, mount sibling filesystems (/var,
+	// /home, /var/lib/docker, …) inside /mountAction so the chrooted
+	// command writes into the right LVs instead of paths that the
+	// boot-time fstab will shadow. No-op when MIRROR_HOST is empty or
+	// when metadata has no extra filesystems.
+	if host := os.Getenv("MIRROR_HOST"); host != "" {
+		if extras, err := fetchSiblings(ctx); err == nil && len(extras) > 0 {
+			if err := chrootpkg.MountExtras(extras); err != nil {
+				return fmt.Errorf("mount sibling filesystems: %w", err)
+			}
+			log.Info("mounted sibling filesystems", "count", len(extras))
+		} else if err != nil {
+			log.Warn("metadata fetch failed; continuing without sibling mounts", "error", err.Error())
+		}
+	}
 
 	if s.chroot != "" {
 		if s.updateResolvConf {
@@ -299,4 +317,19 @@ func restoreFile(file string) error {
 		return fmt.Errorf("error restoring %v: %w", file, err)
 	}
 	return nil
+}
+
+// fetchSiblings pulls storage.filesystems from Hegel. Caller gates on
+// MIRROR_HOST being set (we don't want to fail the legacy env-only
+// flow for cexec steps that don't need metadata).
+func fetchSiblings(ctx context.Context) ([]metadata.Filesystem, error) {
+	c, err := metadata.New()
+	if err != nil {
+		return nil, err
+	}
+	md, err := c.Fetch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return md.Instance.Storage.Filesystems, nil
 }
