@@ -106,19 +106,19 @@ spec:
                     strict_id: false
                     metadata_version: 2009-04-04
 
-          # 5. Set root password + enable root SSH (bootstrap credential; rotate
-          # once you're driving users/keys via Hardware CR spec.userData).
-          - name: "set-root-password"
-            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+          # 6. Apply root password, SSH keys, users[], and sshd{} settings from
+          # Hegel metadata. Legacy root fields (crypted_root_password, ssh_keys)
+          # still work; users[]/sshd{} are additive.
+          - name: "user-manage"
+            image: ghcr.io/jasonyates/tinkerbell-actions/user-manage:latest
             timeout: 120
             environment:
               BLOCK_DEVICE: "/dev/vg0/root"
               FS_TYPE: "ext4"
-              CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "sed -i 's/^#*PermitRootLogin.*$/PermitRootLogin yes/g' /etc/ssh/sshd_config; echo root:password | chpasswd; passwd -u root"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
-          # 5. Write mdadm.conf so the initramfs can assemble /dev/md0 at boot
+          # 7. Write mdadm.conf so the initramfs can assemble /dev/md0 at boot
           # (the lvm2 initramfs hook scans PVs and activates vg0 on top of it).
           - name: "configure-mdadm"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
@@ -130,19 +130,21 @@ spec:
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "mkdir -p /etc/mdadm; mdadm --detail --scan > /etc/mdadm/mdadm.conf"
 
-          # 6. Write /etc/fstab — LVs for /, /var, /home, /var/lib/docker; both ESPs.
-          - name: "configure-fstab"
-            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+          # 8. Generate /etc/fstab from storage.filesystems labels in metadata.
+          - name: "rootio-fstab"
+            image: ghcr.io/jasonyates/tinkerbell-actions/rootio:latest
             timeout: 60
+            command: ["fstab"]
             environment:
               BLOCK_DEVICE: "/dev/vg0/root"
               FS_TYPE: "ext4"
-              CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "printf 'LABEL=ROOT / ext4 defaults 0 1\nLABEL=VAR /var ext4 defaults 0 2\nLABEL=HOME /home ext4 defaults 0 2\nLABEL=DOCKER /var/lib/docker ext4 defaults 0 2\nLABEL=EFI_SDA /boot/efi vfat defaults,nofail 0 2\nLABEL=EFI_SDB /boot/efi2 vfat defaults,nofail 0 2\n' > /etc/fstab"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
 
-          # 7. Preload the lvm + mdraid1x GRUB modules so root-on-LVM-on-RAID
+          # 9. Preload the lvm + mdraid1x GRUB modules so root-on-LVM-on-RAID
           # boots even if grub-install's auto-detection misses one of them.
+          # Defensive stopgap — grub2disk EFI mode writes a working grub config
+          # either way, but keeping this preload is cheap insurance.
           - name: "configure-grub-lvm"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
             timeout: 60
@@ -153,7 +155,18 @@ spec:
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "echo 'GRUB_PRELOAD_MODULES=\"lvm mdraid1x\"' >> /etc/default/grub"
 
-          # 8. Regenerate initramfs so it includes mdadm + lvm2 hooks and the
+          # 10. Apply serial console (tty + baud) from metadata. No-op when
+          # metadata has no console{} block.
+          - name: "serial-console"
+            image: ghcr.io/jasonyates/tinkerbell-actions/serial-console:latest
+            timeout: 60
+            environment:
+              BLOCK_DEVICE: "/dev/vg0/root"
+              FS_TYPE: "ext4"
+              METADATA_SERVICE_PORT: "7080"
+              MIRROR_HOST: "31.24.228.5"
+
+          # 11. Regenerate initramfs so it includes mdadm + lvm2 hooks and the
           # mdadm.conf written above.
           - name: "update-initramfs"
             image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
@@ -165,43 +178,30 @@ spec:
               DEFAULT_INTERPRETER: "/bin/bash -eux -c"
               CMD_LINE: "update-initramfs -u -k all"
 
-          # 9. Install GRUB to sda's ESP, copy to the firmware fallback path,
-          # and generate grub.cfg pointing at the LV root.
+          # 12. Install GRUB to sda's ESP. grub2disk MODE=efi handles install,
+          # firmware fallback copy, and best-effort NVRAM registration.
           - name: "grub-install-sda"
-            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/grub2disk:latest
             timeout: 300
             environment:
-              BLOCK_DEVICE: "/dev/vg0/root"
+              GRUB_INSTALL_PATH: "/dev/vg0/root"
               FS_TYPE: "ext4"
-              CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "mkdir -p /boot/efi; mount /dev/sda1 /boot/efi; grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck --no-nvram; update-grub; mkdir -p /boot/efi/EFI/BOOT; cp /boot/efi/EFI/ubuntu/shimx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || cp /boot/efi/EFI/ubuntu/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI; cp /boot/efi/EFI/ubuntu/grubx64.efi /boot/efi/EFI/BOOT/grubx64.efi 2>/dev/null || true; umount /boot/efi"
+              MODE: "efi"
+              EFI_PARTITION: "/dev/sda1"
+              BOOTLOADER_ID: "ubuntu"
 
-          # 10. Install GRUB to sdb's ESP (backup bootloader, mirrors step 9).
+          # 13. Install GRUB to sdb's ESP (backup bootloader, mirrors step 12).
           - name: "grub-install-sdb"
-            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
+            image: ghcr.io/jasonyates/tinkerbell-actions/grub2disk:latest
             timeout: 300
             environment:
-              BLOCK_DEVICE: "/dev/vg0/root"
+              GRUB_INSTALL_PATH: "/dev/vg0/root"
               FS_TYPE: "ext4"
-              CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "mkdir -p /boot/efi; mount /dev/sdb1 /boot/efi; grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu-backup --recheck --no-nvram; mkdir -p /boot/efi/EFI/BOOT; cp /boot/efi/EFI/ubuntu-backup/shimx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || cp /boot/efi/EFI/ubuntu-backup/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI; cp /boot/efi/EFI/ubuntu-backup/grubx64.efi /boot/efi/EFI/BOOT/grubx64.efi 2>/dev/null || true; umount /boot/efi"
+              MODE: "efi"
+              EFI_PARTITION: "/dev/sdb1"
+              BOOTLOADER_ID: "ubuntu-backup"
 
-          # 11. Register NVRAM entries for both disks. Best-effort — if efivarfs
-          # isn't writable from the provisioning container, the firmware
-          # fallback path populated in steps 9-10 still lets the disks boot.
-          - name: "register-efi-boot-entries"
-            image: ghcr.io/jasonyates/tinkerbell-actions/cexec:latest
-            timeout: 120
-            environment:
-              BLOCK_DEVICE: "/dev/vg0/root"
-              FS_TYPE: "ext4"
-              CHROOT: "y"
-              DEFAULT_INTERPRETER: "/bin/bash -eux -c"
-              CMD_LINE: "efibootmgr --create --disk /dev/sda --part 1 --label 'ubuntu' --loader '\\EFI\\ubuntu\\shimx64.efi' || efibootmgr --create --disk /dev/sda --part 1 --label 'ubuntu' --loader '\\EFI\\ubuntu\\grubx64.efi' || true; efibootmgr --create --disk /dev/sdb --part 1 --label 'ubuntu-backup' --loader '\\EFI\\ubuntu-backup\\grubx64.efi' || true"
-
-          # 12. Reboot the host into the installed OS. waitdaemon defers the
+          # 14. Reboot the host into the installed OS. waitdaemon defers the
           # reboot so tink-agent can report this action's success before the
           # host drops — otherwise the workflow would be stuck in "running".
           - name: "reboot"
