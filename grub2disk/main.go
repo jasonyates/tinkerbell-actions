@@ -1,21 +1,39 @@
+//go:build linux
+
 package main
 
 import (
-	"fmt"
 	"os"
+	"os/exec"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/tinkerbell/actions/grub2disk/grub"
+	"github.com/tinkerbell/actions/pkg/chroot"
 )
 
+// grub2disk (BIOS mode only; Task 8 adds MODE=efi) mounts the target
+// filesystem, chroots in, and runs grub-install against the disk
+// identified by GRUB_DISK. Back-compat env vars preserved.
 func main() {
-	fmt.Printf("GRUB2Disk - GRUB streamer\n------------------------\n")
-	grubInstallPath := os.Getenv("GRUB_INSTALL_PATH")
-	grubBlockDevice := os.Getenv("GRUB_DISK")
-	filesystemType := os.Getenv("FS_TYPE")
+	log.Infof("grub2disk - BIOS grub-install wrapper")
 
-	if err := grub.MountGrub(grubInstallPath, grubBlockDevice, filesystemType); err != nil {
+	grubDisk := os.Getenv("GRUB_DISK")
+	fsType := os.Getenv("FS_TYPE")
+	blockDev := os.Getenv("GRUB_INSTALL_PATH")
+	if grubDisk == "" {
+		log.Fatal("GRUB_DISK is required")
+	}
+	if blockDev == "" {
+		log.Fatal("GRUB_INSTALL_PATH is required")
+	}
+
+	if err := chroot.Enter(blockDev, fsType); err != nil {
 		log.Fatal(err)
 	}
-	log.Infof("grub successfully written on [%s]", grubInstallPath)
+
+	cmd := exec.Command("grub-install", grubDisk)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("grub-install %s: %v", grubDisk, err)
+	}
+	log.Infof("grub successfully written on [%s]", grubDisk)
 }
