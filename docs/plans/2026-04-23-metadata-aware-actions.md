@@ -16,6 +16,50 @@
 
 ---
 
+## Docker layer-caching policy (applies to every new Dockerfile)
+
+Hookworker pulls each distinct image layer once. To maximise cache hits across all 11 action images, every new Dockerfile in this plan uses **byte-identical** first three build-stage layers:
+
+```dockerfile
+FROM golang:1.24-alpine AS build
+RUN apk add --no-cache git ca-certificates gcc linux-headers musl-dev
+COPY . /src
+```
+
+These three layers produce the same content hash across every action built from the same commit, so the worker pulls them exactly once. Only the `WORKDIR`, `go build`, and final-stage binary layers diverge per action.
+
+Existing actions (`cexec`, `writefile`, `archive2disk`, `rootio`, etc.) already follow this pattern in spirit. Where they drift — `archive2disk` pins `golang:1.21-alpine` — we harmonise opportunistically (Task 0 below).
+
+---
+
+## Task 0 (optional, low-risk): harmonise existing Dockerfile bases
+
+**Files:**
+- Modify: `archive2disk/Dockerfile` (bump `golang:1.21-alpine` → `golang:1.24-alpine`)
+
+**Step 1:** Bump the base in `archive2disk/Dockerfile` line 3.
+
+**Step 2:** Build + smoke-test:
+```bash
+docker run --rm -v "$PWD":/app -w /app golang:1.24 sh -c "go build -buildvcs=false ./archive2disk/..."
+```
+
+**Step 3:** Commit:
+```bash
+git add archive2disk/Dockerfile
+git commit -m "archive2disk: bump builder base to golang:1.24-alpine
+
+Matches the rest of the action images so their first two build-stage
+layers (builder base + apk install) share content hashes on the
+Hookworker's image cache. One pull per worker instead of per action.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
+
+If any archive2disk test or build fails on 1.24 (unlikely — the Go ecosystem is very back-compatible), back this out; harmonisation is best-effort.
+
+---
+
 ## Task 1: `pkg/metadata` — shared types + fetch client (TDD)
 
 **Files:**
@@ -1030,20 +1074,28 @@ func main() {
 }
 ```
 
-**Step 7:** Create `serial-console/Dockerfile`:
+**Step 7:** Create `serial-console/Dockerfile`. Match the layer structure of existing actions (cexec/writefile/archive2disk) **byte-for-byte** in the setup lines so Docker's content-addressable layer cache deduplicates on the worker:
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-FROM golang:1.23-alpine AS build
-RUN apk add --no-cache git ca-certificates
+
+FROM golang:1.24-alpine AS build
+RUN apk add --no-cache git ca-certificates gcc linux-headers musl-dev
 COPY . /src
 WORKDIR /src/serial-console
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o serial-console ./cmd
+RUN --mount=type=cache,sharing=locked,id=gomod,target=/go/pkg/mod/cache \
+    --mount=type=cache,sharing=locked,id=goroot,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOOS=linux go build -a \
+        -ldflags "-linkmode external -extldflags '-static' -s -w" \
+        -o serial-console ./cmd
 
 FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /src/serial-console/serial-console /usr/bin/serial-console
 ENTRYPOINT ["/usr/bin/serial-console"]
 ```
+
+The first three build-stage layers (`FROM`, `RUN apk add`, `COPY . /src`) are byte-identical across every action built from the same commit — the Hookworker pulls each layer exactly once no matter how many action images share it. Only the `WORKDIR` + `go build` + final-stage binary layers are per-action. Expected cold-pull reduction: ~470 MB shared baseline + ~15 MB per distinct action binary.
 
 **Step 8:** Build locally + in container:
 ```bash
@@ -1317,7 +1369,26 @@ func main() {
 }
 ```
 
-**Step 6:** `user-manage/Dockerfile` mirroring serial-console's.
+**Step 6:** `user-manage/Dockerfile` — same template as serial-console, only the action name changes (preserves identical layers for the builder base, apk step, and source copy so the Hookworker shares those pulls):
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+FROM golang:1.24-alpine AS build
+RUN apk add --no-cache git ca-certificates gcc linux-headers musl-dev
+COPY . /src
+WORKDIR /src/user-manage
+RUN --mount=type=cache,sharing=locked,id=gomod,target=/go/pkg/mod/cache \
+    --mount=type=cache,sharing=locked,id=goroot,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOOS=linux go build -a \
+        -ldflags "-linkmode external -extldflags '-static' -s -w" \
+        -o user-manage ./cmd
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /src/user-manage/user-manage /usr/bin/user-manage
+ENTRYPOINT ["/usr/bin/user-manage"]
+```
 
 **Step 7:** Build in container:
 ```bash
