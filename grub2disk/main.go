@@ -30,10 +30,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	cmd := exec.Command("grub-install", grubDisk)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := runCmd("grub-install", grubDisk); err != nil {
 		log.Fatalf("grub-install %s: %v", grubDisk, err)
 	}
+	if err := runCmd("grub-mkconfig", "-o", "/boot/grub/grub.cfg"); err != nil {
+		log.Fatalf("grub-mkconfig: %v", err)
+	}
 	log.Infof("grub successfully written on [%s]", grubDisk)
+}
+
+func runCmd(name string, args ...string) error {
+	c := exec.Command(name, args...)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	return c.Run()
 }
