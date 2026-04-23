@@ -16,9 +16,22 @@ jobs:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
-        # Add more actions to this list as you maintain forks of them.
-        action: [rootio, archive2disk, cexec, grub2disk, writefile]
+        action:
+          - archive2disk
+          - cexec
+          - grub2disk
+          - image2disk
+          - kexec
+          - oci2disk
+          - qemuimg2disk
+          - rootio
+          - serial-console
+          - slurp
+          - syslinux
+          - user-manage
+          - writefile
     steps:
       - uses: actions/checkout@v4
 
